@@ -45,11 +45,9 @@ data List (A : Set) : Set where
   [] : List A
   _∷_ : A → List A → List A
 
-
-{- Warmup: list concatenation -} 
-
 _++_ : ∀ {A} → List A → List A → List A
-_++_ = {!!} 
+[]       ++ ys = ys
+(x ∷ xs) ++ ys = x ∷ (xs ++ ys)
 
 -- The 'All' relation asserts that all elements of a list satisfy a given predicate 'P' 
 data All {A : Set} (P : A → Set) : List A → Set where
@@ -149,9 +147,10 @@ data _⊢_⦂_ (Γ : Ctx) : Expr → Type → Set where
                ---------------------
              → Γ ⊢ and e₁ e₂ ⦂ tbool 
 
-  
-  [E-not]  : {!!} 
-   
+  [E-not]  : ∀ {e}
+             → Γ ⊢ e ⦂ tbool
+               -----------------
+             → Γ ⊢ not e ⦂ tbool
 
 -- Heap
 --
@@ -245,7 +244,9 @@ data _,_─→_ {Γ} (h : Heap Γ) : Expr → Expr → Set where
               -------------------
             → h , not e ─→ not e′
 
-  ─→-not  : {!!} 
+  ─→-not  : ∀ {b}
+              ------------------------------
+            → h , not (blit b) ─→ blit (! b) 
 
 -- Preservation (Expressions):
 --
@@ -257,16 +258,17 @@ data _,_─→_ {Γ} (h : Heap Γ) : Expr → Expr → Set where
 -- 'x' maps to a type 't' in some 'Γ', retrieving 'x' from the heap 'h' yields
 -- the expression 'x', and all expressions stored on the heap are well-typed,
 -- then 'e' has type 't'.
---
--- 
 ∈-to-⊢ : ∀ {Γ Γ′ t x e} {h : Heap Γ}
          → x ↦ t ∈ Γ
          → get⟨ h , x ⟩= e
          → ⊢-Heap Γ′ h
            ---------------
          → Γ′ ⊢ e ⦂ t
-∈-to-⊢ = {!!}
-
+∈-to-⊢ here hereʰ (⊢-extend _ d) = d
+∈-to-⊢ here (thereʰ x∈h ns) wth = absurd (ns refl)
+∈-to-⊢ (there x∈Γ ns) hereʰ wth = absurd (ns refl)
+∈-to-⊢ (there x∈Γ _) (thereʰ x∈h _) (⊢-extend wth x)
+  = ∈-to-⊢ x∈Γ x∈h wth
 
 -- Now we're ready to prove the main preservation lemma
 E-preservation : ∀ {Γ t e e′} {h : Heap Γ}  
@@ -275,7 +277,32 @@ E-preservation : ∀ {Γ t e e′} {h : Heap Γ}
                  → h , e ─→ e′
                    -----------
                  → Γ ⊢ e′ ⦂ t
-E-preservation = {!!} 
+
+-- 'e' is a variable
+E-preservation ([E-var] x∈Γ) hwt (─→-var x∈h)
+  = ∈-to-⊢ x∈Γ x∈h hwt  
+
+-- 'e' is an addition 
+E-preservation ([E-add] d d₁) hwt (─→-add₁ st)
+  = [E-add] (E-preservation d hwt st) d₁
+E-preservation ([E-add] d d₁) hwt (─→-add₂ st)
+  = [E-add] d (E-preservation d₁ hwt st)
+E-preservation ([E-add] d d₁) hwt ─→-add
+  = [E-nlit]
+
+-- 'e' is a conjunction 
+E-preservation ([E-and] d d₁) hwt (─→-and₁ st)
+  = [E-and] (E-preservation d hwt st) d₁
+E-preservation ([E-and] d d₁) hwt (─→-and₂ st)
+  = [E-and] d (E-preservation d₁ hwt st)
+E-preservation ([E-and] d d₁) hwt ─→-and
+  = [E-blit]
+
+-- 'e' is a negation 
+E-preservation ([E-not] d) hwt (─→-not₁ st)
+  = [E-not] (E-preservation d hwt st)
+E-preservation ([E-not] d) hwt ─→-not
+  = [E-blit]
 
 
 --  Progress 
@@ -290,7 +317,11 @@ heap-lemma : ∀ {Γ t x} {h : Heap Γ}
              → x ↦ t ∈ Γ
                ---------------------------------
              → Σ Expr λ e → get⟨ h , x ⟩= e
-heap-lemma = {!!} 
+heap-lemma {h = extend _ e _} here           =
+  e , hereʰ
+heap-lemma {h = extend _ _ h} (there x∈h ns)
+  with heap-lemma {h = h} x∈h
+... | e , p = e , thereʰ p ns
 
 -- Furthermore, we use the following relation, where a value of type 'Literal e'
 -- proves that 'e' is either a boolean or a number literal.
@@ -305,7 +336,41 @@ E-progress : ∀ {Γ t e} {h : Heap Γ}
                ----------------------------------------------
              → Either (Σ Expr λ e′ → h , e ─→ e′) (Literal e) 
 
-E-progress = {!!} 
+-- 'e' is a variable 
+E-progress ([E-var] x)
+  = left (_ , ─→-var (heap-lemma x .snd))
+
+-- 'e' is a number literal 
+E-progress [E-nlit]
+  = right isNum
+
+-- 'e' is a Boolean literal 
+E-progress [E-blit]
+  = right isBool
+
+-- 'e' is an addition 
+E-progress ([E-add] d₁ d₂)
+  with E-progress d₁
+... | left  st = left (_ , ─→-add₁ (st .snd))
+... | right isNum
+  with E-progress d₂
+... | left  st    = left (_ , ─→-add₂ (st .snd))
+... | right isNum = left (_ , ─→-add)
+
+-- 'e' is a negation 
+E-progress ([E-and] d₁ d₂)
+  with E-progress d₁
+... | left st = left (_ , ─→-and₁ (st .snd))
+... | right isBool
+  with E-progress d₂ 
+... | left  st     = left (_ , ─→-and₂ (st .snd))
+... | right isBool = left (_ , ─→-and)
+
+-- 'e' 
+E-progress ([E-not] d)
+  with E-progress d
+... | left  st     = left (_ , ─→-not₁ (st .snd))
+... | right isBool = left (_ , ─→-not)
 
 
 -- Soundness for expressions follows from the lemmas 'E-preservation' and
@@ -383,7 +448,7 @@ mutual
 
   data _⊢ᵖ_↝_ (Γ : Ctx) : Prog → Ctx → Set where
 
-    [P-empty] :   -----------
+    [P-empty] :   ------
                   Γ ⊢ᵖ [] ↝ Γ 
     
     [P-cons]  : ∀ {Γ′ Γ′′ s P}
@@ -398,7 +463,8 @@ mutual
            → Γ′ ⊢ᵖ P₂       ↝ Γ′′
              -------------------
            → Γ  ⊢ᵖ P₁ ++ P₂ ↝ Γ′′ 
-⊢ᵖ-trans = {!!} 
+⊢ᵖ-trans [P-empty]       d₂ = d₂
+⊢ᵖ-trans ([P-cons] d d₁) d₂ = [P-cons] d (⊢ᵖ-trans d₁ d₂)
 
 -- auxiliary function that maps literals to their type 
 typeOf : ∀ {e} → Literal e → Type
@@ -450,7 +516,26 @@ preservation : ∀ {Γ Γ′ Γ′′ P P′ }
                → h , P ─→ h′ , P′
                  ----------------
                → Γ′ ⊢ᵖ P′ ↝ Γ′′
-preservation = {!!} 
+
+
+-- Assignment
+preservation ([P-cons] ([S-assign] x) d) hwt (─→-assign₁ st)
+  with E-preservation x hwt st
+... | r = [P-cons] ([S-assign] r) d
+preservation ([P-cons] ([S-assign] [E-nlit]) d) hwt (─→-assign isNum)
+  = d
+preservation ([P-cons] ([S-assign] [E-blit]) d) hwt (─→-assign isBool)
+  = d
+
+-- If statements
+preservation ([P-cons] ([S-if] d₁ d₂ d₃) d) hwt (─→-if₁ st)
+  = [P-cons] ([S-if] (E-preservation d₁ hwt st) d₂ d₃) d
+preservation ([P-cons] ([S-if] [E-blit] d₂ d₃) d) hwt ─→-if-true = ⊢ᵖ-trans d₂ d
+preservation ([P-cons] ([S-if] [E-blit] d₂ d₃) d) hwt ─→-if-false = ⊢ᵖ-trans d₃ d
+
+-- While statements 
+preservation ([P-cons] d'@([S-while] d₁ d₂) d)    hwt ─→-while
+  = ⊢ᵖ-trans ([P-cons] ([S-if] d₁ (⊢ᵖ-trans d₂ ([P-cons] d' [P-empty])) [P-empty]) [P-empty]) d
 
 -- A predicate that asserts that a program is an empty list of statements
 data Empty : Prog → Set where
@@ -463,4 +548,24 @@ progress : ∀ {Γ Γ′′ P}
            → Γ ⊢ᵖ P ↝ Γ′′
              ------------------------------------------------------------------------------
            → Either (Σ (Prog × Σ Ctx Heap) λ (P′ , (Γ′ , h′)) → h , P ─→ h′ , P′) (Empty P)
-progress = {!!} 
+
+-- Assignment 
+progress [P-empty]
+  = right isEmpty
+progress ([P-cons] ([S-assign] d) _)
+  with E-progress d
+... | left (_ , st)
+  = left (_ , (─→-assign₁ st))
+... | right l
+  = left (_ , (─→-assign l))
+
+-- If statements
+progress ([P-cons] ([S-if] d₁ d₂ d₃) d)
+  with E-progress d₁ 
+... | left  (_ , st)         = left (_ , ─→-if₁ st)
+... | right (isBool {true})  = left (_ , ─→-if-true)
+... | right (isBool {false}) = left (_ , ─→-if-false)
+
+-- While statements 
+progress ([P-cons] ([S-while] d₁ d₂) d)
+  = left (_ , ─→-while)
