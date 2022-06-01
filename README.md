@@ -1,6 +1,6 @@
 # Verifying Type Soundness in Agda 
 
-This repo contains the files for a lecture on verifying type soundness in Agda, given as part of the course "Language Based Software Security" at TU Delft. 
+This repository contains the demo files for a lecture on verifying type soundness in Agda, given as part of the course "Language Based Software Security" at TU Delft. The goal is to formalize and verify type soundness of the *Assign* language introduced during the course. 
 
 See the Agda docs (https://agda.readthedocs.io/en/v2.6.2.1/) for how to install and setup Agda. Alternatively you can use Agdapad (https://agdapad.quasicoherent.io/). 
 
